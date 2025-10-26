@@ -10,7 +10,6 @@ USER_AGENT = "Mozilla/5.0"  # Spoof a modern browser User-Agent so Wikipedia ser
 S_AND_P_500_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"  # URL where the current S&P 500 table lives.
 MIN_REQUIRED_NUM_OBS_PER_TICKER = 100  # Minimum number of non-missing price observations we require for each ticker column.
 
-
 def _fetch_sp500_tickers() -> list[str]:  # Leading underscore marks this helper as internal; return type lists ticker symbols.
     """Fetch the current S&P 500 ticker list from Wikipedia."""
     response = requests.get(  # requests.get issues an HTTP GET (source: requests library) and returns a Response object.
@@ -30,6 +29,40 @@ def _filter_dense_tickers(prices: pd.DataFrame) -> pd.DataFrame:  # Helper expec
     valid_ticker_index = ticker_counts[ticker_counts >= MIN_REQUIRED_NUM_OBS_PER_TICKER].index  # Boolean mask keeps tickers meeting the minimum observation threshold and retrieves their column labels.
     return prices[valid_ticker_index]  # Subset the DataFrame to only those dense tickers by label selection.
 
+def create_ticker_hist_prices(tickers, start_date: str = "2025-10-01", end_date: str = "2025-10-24") -> pd.DataFrame:  # Public API: optional ISO date strings; returns a pandas DataFrame.
+    """
+    Returns historical prices for requested tickers between the provided dates.
+
+    The data is cached to `historical_prices_tickers.csv` alongside this module to avoid
+    hitting the Yahoo Finance API on every invocation.
+    """
+    data_path = Path(__file__).with_name("historical_prices_tickers.csv")  # Path(__file__) builds a path to this file; with_name replaces the filename so cache sits next to the module.
+
+    if data_path.exists():  # Path.exists() (pathlib) checks whether the CSV cache is already present.
+        print("Loading historical prices from local CSV file.")  # Notify the user that we are using the cached dataset.
+        historical_prices = pd.read_csv(data_path, index_col=0, parse_dates=True)  # pandas.read_csv loads the cached table, using the first column as the Date index and parsing to datetime objects.
+    else:
+        print("Downloading historical prices from Yahoo Finance.")  # Message for the slower path that hits the network.
+        if tickers is None:
+            tickers = _fetch_sp500_tickers()  # Reuse our helper to grab the current ticker list.
+        print(f"Searching {len(tickers)} tickers")  # f-string reports how many tickers yfinance will request.
+
+        historical_prices = yf.download(  # yfinance.download queries Yahoo's API for historical prices and returns a pandas DataFrame with a MultiIndex on columns.
+            tickers,  # Provide the full ticker list to download all series at once.
+            start=start_date,  # Lower bound for the historical period (yfinance accepts YYYY-MM-DD strings).
+            end=end_date,  # Upper bound end date (exclusive) for the download.
+            progress=True,  # Disable yfinance's progress bar so scripts/logs stay clean.
+            group_by="ticker",  # Request data grouped by ticker so column index is (field, ticker).
+        )
+
+        # Retain only close prices to minimise storage and match downstream expectations.
+        historical_prices = historical_prices.loc[:, historical_prices.columns.get_level_values(1) == "Close"]  # Use DataFrame.loc with a boolean mask on the top-level MultiIndex to keep only "Close" series.
+        historical_prices.columns = historical_prices.columns.droplevel(1)  # Drop the top level ("Close") to leave plain ticker symbols as column labels.
+        historical_prices.to_csv(data_path)  # Persist the prepared DataFrame to CSV so the next run can reuse it.
+
+    # filtered_prices = _filter_dense_tickers(historical_prices)  # Apply the density filter regardless of cache path to ensure quality data.
+    # print(filtered_prices.head())  # Uncomment for a quick preview of the filtered data during debugging.
+    return historical_prices  # Return the filtered DataFrame to the caller for further processing.
 
 def create_sp500_historical_prices(start_date: str = "2000-01-01", end_date: str = "2025-10-21") -> pd.DataFrame:  # Public API: optional ISO date strings; returns a pandas DataFrame.
     """
@@ -57,12 +90,12 @@ def create_sp500_historical_prices(start_date: str = "2000-01-01", end_date: str
         )
 
         # Retain only close prices to minimise storage and match downstream expectations.
-        historical_prices = historical_prices.loc[:, historical_prices.columns.get_level_values(0) == "Close"]  # Use DataFrame.loc with a boolean mask on the top-level MultiIndex to keep only "Close" series.
-        historical_prices.columns = historical_prices.columns.droplevel(0)  # Drop the top level ("Close") to leave plain ticker symbols as column labels.
-        historical_prices.to_csv(data_path)  # Persist the prepared DataFrame to CSV so the next run can reuse it.
+        historical_prices = historical_prices.loc[:, historical_prices.columns.get_level_values(1) == "Close"]  # Use DataFrame.loc with a boolean mask on the top-level MultiIndex to keep only "Close" series.
+        historical_prices.columns = historical_prices.columns.droplevel(1)  # Drop the top level ("Close") to leave plain ticker symbols as column labels.
+        filtered_prices = _filter_dense_tickers(historical_prices)  # Apply the density filter regardless of cache path to ensure quality data.
+        filtered_prices.to_csv(data_path)  # Persist the prepared DataFrame to CSV so the next run can reuse it.
 
-    filtered_prices = _filter_dense_tickers(historical_prices)  # Apply the density filter regardless of cache path to ensure quality data.
-    # print(filtered_prices.head())  # Show the first five rows using DataFrame.head() so the user can inspect sample values quickly.
+    # print(filtered_prices.head())  # Uncomment for a quick preview of the filtered data during debugging.
     return filtered_prices  # Return the filtered DataFrame to the caller for further processing.
 
 
@@ -119,16 +152,16 @@ def computing_returns(historical_prices, list_of_momentums):  # Function compute
 
 def compute_BM_perf(total_returns):
     """
-    Purpose: Compute benchmark performance for investment universe and return cumulative calender returns.
+    Purpose: Compute benchmark performance for investment universe and return cumulative calendar returns.
     Input:  dataframe of total returns with forward and momentum returns
     """
 
     # Compute the daily mean of all stocks. This will be our equal weighted benchmark return.
-    daily_mean = pd.DataFrame(total_returns.loc[:"F_1_d_returns"].groupby(level="Date").mean())  # Group by Date level of MultiIndex and compute mean across all tickers for each date.
+    daily_mean = pd.DataFrame(total_returns.loc[:"F_1_d_returns"].groupby(level="Date").mean())  # Group by Date level of the MultiIndex and average the forward return column across tickers for each date.
     daily_mean.rename(columns={"F_1_d_returns": "S&P500"}, inplace=True)  # Rename the column to indicate these are benchmark daily returns.
 
     # Convert daily returns to cumulative returns
-    cum_return = pd.DataFrame((daily_mean[["S&P500"]]+1).cumprod())  # Cumulative product of (1 + daily return) minus 1 gives cumulative return over time.
+    cum_return = pd.DataFrame((daily_mean[["S&P500"]]+1).cumprod())  # Cumulative product of (1 + daily return) yields the value of a $1 investment through time.
 
     # Plot cumulative returns
     cum_return.plot()  # Use DataFrame.plot to visualize cumulative returns with a title.
@@ -138,14 +171,14 @@ def compute_BM_perf(total_returns):
     plt.xlabel("Date", fontsize=14)  # Label the x-axis as Date.
     plt.ylabel("Cumulative Return", fontsize=14)  # Label the y-axis as Cumulative Return.
     plt.grid(True)  # Enable grid lines for better readability.     
-    plt.xticks(rotation=45)  # Enable vertical grid lines for better readability.
+    plt.xticks(rotation=45)  # Rotate x-axis labels so overlapping dates remain readable.
     plt.legend(title_fontsize=13, fontsize=12)  # Set legend font size for clarity.
 
     # Calulate the number of years in the dataset
     number_of_years = len(daily_mean) / 252  # Assuming 252 trading days per year to convert total return to annualized return.
 
     ending_value = cum_return["S&P500"].iloc[-1]  # Get the final cumulative return value for the benchmark.
-    beginning_value = cum_return["S&P500"].iloc[1]  # Get the initial cumulative return value for the benchmark.
+    beginning_value = cum_return["S&P500"].iloc[1]  # Use the first non-NaN cumulative value as the starting point for CAGR.
 
     # Compute the Compounded Annual Growth Rate (CAGR)
     ratio = ending_value / beginning_value  # Calculate the ratio of ending to beginning value.
@@ -153,16 +186,16 @@ def compute_BM_perf(total_returns):
     print(f"The CAGR of the S&P500 benchmark over the period is {cagr} %")
 
     # Compute the Sharpe Ratio
-    average_daily_return = daily_mean[["S&P500"]].describe().iloc[1,:] * 252 # Mean of daily returns for the benchmark.
-    standard_dev_daily_return = daily_mean[["S&P500"]].describe().iloc[2,:] * pow(252, 1/2)  # Standard deviation of daily returns for the benchmark.
+    average_daily_return = daily_mean[["S&P500"]].describe().iloc[1,:] * 252  # Annualize the mean of daily returns (describe row index 1).
+    standard_dev_daily_return = daily_mean[["S&P500"]].describe().iloc[2,:] * pow(252, 1/2)  # Annualize the standard deviation (describe row index 2) using sqrt(252).
     
     sharp = average_daily_return / standard_dev_daily_return  # Sharpe ratio calculation.
     print(f"The Sharpe Ratio of the S&P500 benchmark over the period is {round(sharp.iloc[0],2)}")
 
-    ann_returns = (pd.DataFrame((daily_mean[["S&P500"]]+1).groupby(daily_mean.index.get_level_values(0).year).cumprod())-1)*100 # Annualized return calculation.
-    calendar_returns = pd.DataFrame(ann_returns["S&P500"].groupby(daily_mean.index.get_level_values(0).year).last())  # Extract last value of each year to get calendar year returns.
+    ann_returns = (pd.DataFrame((daily_mean[["S&P500"]]+1).groupby(daily_mean.index.get_level_values(0).year).cumprod())-1)*100  # Convert each year's cumulative growth into percentage returns.
+    calendar_returns = pd.DataFrame(ann_returns["S&P500"].groupby(daily_mean.index.get_level_values(0).year).last())  # Extract last value of each year to get calendar-year returns.
 
-    calendar_returns.plot.bar(rot=30, legend="top_left")
+    calendar_returns.plot.bar(rot=30, legend="top_left")  # Plot annual returns as a bar chart with rotated labels for readability.
     plt.show()  # Display the plot to the user.
 
-    return cum_return #, calendar_return
+    return cum_return  # Return the cumulative benchmark series (calendar returns kept for potential future use).

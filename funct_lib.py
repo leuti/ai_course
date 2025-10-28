@@ -98,7 +98,6 @@ def create_sp500_historical_prices(start_date: str = "2000-01-01", end_date: str
     # print(filtered_prices.head())  # Uncomment for a quick preview of the filtered data during debugging.
     return filtered_prices  # Return the filtered DataFrame to the caller for further processing.
 
-
 def computing_returns(historical_prices, list_of_momentums):  # Function computes forward and momentum-based returns; parameters are expected pandas objects.
     """
     Input:  dataframe of historical prices
@@ -112,13 +111,9 @@ def computing_returns(historical_prices, list_of_momentums):  # Function compute
     # compute the forward returns by taking the percentage change of close price
     f_returns = historical_prices.pct_change(forecast_horizon)  # DataFrame.pct_change(n) (pandas) computes percent change over n periods along the index.
 
-    # print(f_returns["AAPL"].head())
-    # print(f_returns.head())
-
     # We then shift the forward returns
     f_returns = f_returns.shift(-forecast_horizon)  # DataFrame.shift(-n) moves data upward so each row stores the future return aligned with the current date.
-    # print(f_returns.iloc[:,0:10].head())
-
+    
     # Pivot the returns dataframe to have a multi-index with date and ticker
     f_returns = pd.DataFrame(f_returns.unstack())  # Series/DataFrame.unstack() (pandas) pivots columns into a MultiIndex; wrapping with DataFrame makes sure we keep a 2D structure.
     f_returns.index.set_names(["Ticker", "Date"], inplace=True)  # Assign explicit names to the MultiIndex levels for clarity downstream.
@@ -156,8 +151,12 @@ def compute_BM_perf(total_returns):
     Input:  dataframe of total returns with forward and momentum returns
     """
 
+    total_returns = total_returns.sort_index() # Ensure the DataFrame is sorted by the MultiIndex (Ticker, Date) for consistent processing.
+
     # Compute the daily mean of all stocks. This will be our equal weighted benchmark return.
-    daily_mean = pd.DataFrame(total_returns.loc[:"F_1_d_returns"].groupby(level="Date").mean())  # Group by Date level of the MultiIndex and average the forward return column across tickers for each date.
+    # daily_mean = pd.DataFrame(total_returns.loc[:"F_1_d_returns"].groupby(level="Date").mean())  # Group by Date level of the MultiIndex and average the forward return column across tickers for each date.
+    daily_mean = pd.DataFrame(total_returns.loc[:, "F_1_d_returns"].groupby(level="Date").mean()) # Group by Date level of the MultiIndex and average the forward return column across tickers for each date.
+    
     daily_mean.rename(columns={"F_1_d_returns": "S&P500"}, inplace=True)  # Rename the column to indicate these are benchmark daily returns.
 
     # Convert daily returns to cumulative returns
@@ -166,7 +165,6 @@ def compute_BM_perf(total_returns):
     # Plot cumulative returns
     cum_return.plot()  # Use DataFrame.plot to visualize cumulative returns with a title.
     # Customize the plot with title and labels
-
     plt.title("Cumulative Returns over time", fontsize=16, fontweight="bold")  # Set the plot title.
     plt.xlabel("Date", fontsize=14)  # Label the x-axis as Date.
     plt.ylabel("Cumulative Return", fontsize=14)  # Label the y-axis as Cumulative Return.

@@ -11,8 +11,5 @@ import funct_lib as fl
 
 historical_prices = fl.create_sp500_historical_prices()
 
-print(historical_prices.head())
-
-
 list_of_momentums = [1,2]
 fl.computing_returns(historical_prices, list_of_momentums)

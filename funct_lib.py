@@ -197,3 +197,20 @@ def compute_BM_perf(total_returns):
     plt.show()  # Display the plot to the user.
 
     return cum_return  # Return the cumulative benchmark series (calendar returns kept for potential future use).
+
+def calculate_rsi(returns, window=14):
+    """Calculate the Relative Strength Index (RSI) for a given series of returns."""
+    gain = returns[returns>0].dropna().rolling(window=window).mean()  # Calculate average gains over the specified window.
+    gain.name = "gain"
+    loss = returns[returns<0].dropna().rolling(window=window).mean()  # Calculate average gains over the specified window.
+    gain.loss = "loss"
+    
+    returns = pd.merge(returns, gain, left_index=True, right_index=True, how='left')  # Merge gains with original returns.
+    returns = pd.merge(returns, loss, left_index=True, right_index=True, how='left')
+    returns = returns.ffill()  # Forward fill to handle NaN values after merging.
+    returns = returns.dropna(inplace=True)  # Drop any remaining NaN values.
+
+    ratio = returns["gain"] / abs(returns["loss"])  # Calculate the relative strength ratio.
+    rsi = 100 - (100 / (1 + ratio))  # Compute the RSI using the standard formula.
+
+    return rsi

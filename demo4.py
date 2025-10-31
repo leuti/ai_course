@@ -18,7 +18,7 @@ total_returns = fl.computing_returns(historical_prices, list_of_momentums)
 returns = total_returns['1_d_returns']  # Example: using 1-day returns for RSI calculation
 returns = returns[returns.index.get_level_values(0) == 'AAPL']  # Filter for a specific ticker, e.g., AAPL
 
-window = 2
+# window = 2
 
 total_returns["RSI"] = total_returns.groupby("Ticker")[['1_d_returns']].transform(fl.calculate_rsi)
 

@@ -75,7 +75,7 @@ def create_sp500_historical_prices(start_date: str = "2000-01-01", end_date: str
 
     if data_path.exists():  # Path.exists() (pathlib) checks whether the CSV cache is already present.
         print("Loading historical prices from local CSV file.")  # Notify the user that we are using the cached dataset.
-        historical_prices = pd.read_csv(data_path, index_col=0, parse_dates=True)  # pandas.read_csv loads the cached table, using the first column as the Date index and parsing to datetime objects.
+        filtered_prices = pd.read_csv(data_path, index_col=0, parse_dates=True)  # pandas.read_csv loads the cached table, using the first column as the Date index and parsing to datetime objects.
     else:
         print("Downloading historical prices from Yahoo Finance.")  # Message for the slower path that hits the network.
         sp500_tickers = _fetch_sp500_tickers()  # Reuse our helper to grab the current ticker list.
@@ -85,7 +85,7 @@ def create_sp500_historical_prices(start_date: str = "2000-01-01", end_date: str
             sp500_tickers,  # Provide the full ticker list to download all series at once.
             start=start_date,  # Lower bound for the historical period (yfinance accepts YYYY-MM-DD strings).
             end=end_date,  # Upper bound end date (exclusive) for the download.
-            progress=False,  # Disable yfinance's progress bar so scripts/logs stay clean.
+            progress=True,  # Disable yfinance's progress bar so scripts/logs stay clean.
             group_by="ticker",  # Request data grouped by ticker so column index is (field, ticker).
         )
 
@@ -203,12 +203,12 @@ def calculate_rsi(returns, window=14):
     gain = returns[returns>0].dropna().rolling(window=window).mean()  # Calculate average gains over the specified window.
     gain.name = "gain"
     loss = returns[returns<0].dropna().rolling(window=window).mean()  # Calculate average gains over the specified window.
-    gain.loss = "loss"
-    
+    loss.name = "loss"
+
     returns = pd.merge(returns, gain, left_index=True, right_index=True, how='left')  # Merge gains with original returns.
     returns = pd.merge(returns, loss, left_index=True, right_index=True, how='left')
     returns = returns.ffill()  # Forward fill to handle NaN values after merging.
-    returns = returns.dropna(inplace=True)  # Drop any remaining NaN values.
+    returns = returns.dropna()  # Drop any remaining NaN values. inplace=True removed
 
     ratio = returns["gain"] / abs(returns["loss"])  # Calculate the relative strength ratio.
     rsi = 100 - (100 / (1 + ratio))  # Compute the RSI using the standard formula.

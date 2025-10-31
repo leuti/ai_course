@@ -33,7 +33,7 @@ plt.grid(True)  # Enable grid lines for better readability.
 
 plt.show()
 
-scatter_plot = total_returns.plot.scatter(x="RSI", y="F_1_d_return", ax=plt.gca(), alpha=0.5, s=0.01, color='blue', edgecolor='black')
+scatter_plot = total_returns.plot.scatter(x="RSI", y="F_1_d_returns", ax=plt.gca(), alpha=0.5, s=0.01, color='blue', edgecolor='black')
 
 # Customize the plot with title and labels
 plt.title("RSI vs 1-Day Forward Return", fontsize=16, fontweight="bold")  # Set the plot title.
@@ -46,13 +46,21 @@ plt.show()
 total_returns[['RSI', 'F_1_d_returns']].corr().style.background_gradient()
 
 feature = "RSI"
-taraget = "F_1_d_returns"
+target = "F_1_d_returns"
 
 # Specify custom bin boundaries
 bin_boundaries = [0, 30, 70, 100]  # Example: Oversold (<30), Neutral (30-70), Overbought (>70)
 
-total_returns["Qantiles"] = total_returns.groupby(level="Date")[feature].transform(lambda x: pd.cut(x, bins=bin_boundaries, labels=False, include_lowest=True))
+total_returns["Quantiles"] = total_returns.groupby(level="Date")[feature].transform(lambda x: pd.cut(x, bins=bin_boundaries, labels=False, include_lowest=True))
 
-total_returns.groupby("Qantiles")[[target]].mean().plot(kind='bar', legend=True)
+quantiles_plot = total_returns.groupby("Quantiles")[[target]].mean().plot(kind='bar', legend=True)
+
+# Customize the plot with title and labels
+plt.title("Quantiles", fontsize=16, fontweight="bold")  # Set the plot title.
+plt.xlabel("RSI", fontsize=14)  # Label the x-axis as Date.
+plt.ylabel("Quantiles", fontsize=14)  # Label the y-axis as Cumulative Return.
+plt.grid(True)  # Enable grid lines for better readability.     
+
+plt.show()
 
 total_returns[total_returns["RSI"]<30].describe()

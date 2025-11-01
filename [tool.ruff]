@@ -1,0 +1,11 @@
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I"]  # tweak to match your style strategy
+
+src = ["ai_course", "intro_python"]
+fix = true              # optional: auto-fix on check
+extend-select = ["E", "F"]
+ignore = []
+
+[tool.ruff.format]
+docstring-code-format = true    # optional extras
